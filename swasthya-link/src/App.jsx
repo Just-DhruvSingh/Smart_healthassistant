@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, LayoutDashboard, RefreshCw, UserPlus } from 'lucide-react'
+import OfflineAlert from './components/OfflineAlert'
 import Navbar from './components/Navbar'
 import Dashboard from './pages/Dashboard'
 import PatientForm from './pages/PatientForm'
 import SyncPage from './pages/SyncPage'
 import {
   createPatient,
+  fetchDoctorInsights,
   fetchPatients,
+  markPatientReviewed,
+  updatePatientPrescription,
   syncAllPatients,
   syncPatient,
 } from './services/patientApi'
@@ -16,6 +20,7 @@ import {
   saveCachedServerPatients,
   savePendingPatients,
 } from './utils/patientStorage'
+import useOnlineStatus from './hooks/useOnlineStatus'
 
 const normalizeServerPatient = (patient) => ({
   id: patient.id,
@@ -27,6 +32,15 @@ const normalizeServerPatient = (patient) => ({
     ? `Synced ${new Date(patient.syncedAt).toLocaleString()}`
     : `Saved ${new Date(patient.createdAt).toLocaleString()}`,
   status: patient.status || 'offline',
+  triage: patient.triage || {
+    score: 0,
+    level: 'Pending',
+    advice: 'Triage assessment will appear after sync.',
+  },
+  emergency: Boolean(patient.emergency),
+  prescription: patient.prescription || 'Consult Doctor',
+  visitCount: patient.visitCount || 1,
+  offlineGuidance: patient.offlineGuidance || null,
   source: 'server',
 })
 
@@ -35,11 +49,32 @@ const normalizePendingPatient = (patient) => ({
   name: patient.name,
   age: patient.age,
   symptoms: patient.symptoms,
-  village: 'Saved On Device',
+  village: patient.village || 'Saved On Device',
   lastUpdated: `Saved locally ${new Date(patient.createdAt).toLocaleString()}`,
   status: 'offline',
+  triage: {
+    score: 0,
+    level: 'Pending Sync',
+    advice: 'Clinical triage and decision support will be generated after backend sync.',
+  },
+  emergency: false,
+  prescription: 'Pending Sync',
+  visitCount: patient.visitCount || 1,
+  offlineGuidance: patient.offlineGuidance || null,
   source: 'local',
 })
+
+const emptyDoctorInsights = {
+  priorityGroups: { high: [], medium: [], low: [] },
+  emergencyPatients: [],
+  villageSummary: [],
+  outbreaks: [],
+  stats: {
+    totalPatients: 0,
+    highRiskCount: 0,
+    mostCommonSymptoms: [],
+  },
+}
 
 const navItems = [
   { key: 'registration', label: 'Registration', icon: UserPlus },
@@ -56,7 +91,8 @@ function App() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [infoMessage, setInfoMessage] = useState('')
-  const [isOnline, setIsOnline] = useState(window.navigator.onLine)
+  const [doctorInsights, setDoctorInsights] = useState(emptyDoctorInsights)
+  const isOnline = useOnlineStatus()
 
   const patients = useMemo(
     () => [...pendingPatients.map(normalizePendingPatient), ...serverPatients.map(normalizeServerPatient)],
@@ -68,7 +104,7 @@ function App() {
     setServerPatients(getCachedServerPatients())
   }, [])
 
-  const loadPatients = async () => {
+  const loadPatients = useCallback(async () => {
     if (!window.navigator.onLine) {
       setIsLoading(false)
       setInfoMessage('You are offline. Showing locally saved and cached records.')
@@ -88,37 +124,43 @@ function App() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
+
+  const loadDoctorInsights = useCallback(async () => {
+    if (!window.navigator.onLine) {
+      return
+    }
+
+    try {
+      const insights = await fetchDoctorInsights()
+      setDoctorInsights(insights)
+    } catch (error) {
+      console.error('Failed to load doctor insights:', error)
+      setDoctorInsights(emptyDoctorInsights)
+    }
+  }, [])
+
+  const refreshAllData = useCallback(async () => {
+    await Promise.all([loadPatients(), loadDoctorInsights()])
+  }, [loadDoctorInsights, loadPatients])
 
   useEffect(() => {
-    loadPatients()
-  }, [])
+    refreshAllData()
+  }, [refreshAllData])
 
   useEffect(() => {
     savePendingPatients(pendingPatients)
   }, [pendingPatients])
 
   useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true)
+    if (isOnline) {
       setInfoMessage('Connection restored. You can sync pending patient records now.')
       setErrorMessage('')
-      loadPatients()
-    }
-
-    const handleOffline = () => {
-      setIsOnline(false)
+      refreshAllData()
+    } else {
       setInfoMessage('You are offline. New records will stay on this device until connection returns.')
     }
-
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-
-    return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-    }
-  }, [])
+  }, [isOnline, refreshAllData])
 
   const summary = useMemo(() => {
     const offlineCount = patients.filter((patient) => patient.status === 'offline').length
@@ -150,6 +192,7 @@ function App() {
       )
       setErrorMessage('')
       setActivePage('sync')
+      await loadDoctorInsights()
     } catch (error) {
       console.error('Failed to save patient:', error)
       setErrorMessage(error.message || 'Failed to save patient record.')
@@ -175,7 +218,9 @@ function App() {
           name: localPatient.name,
           age: localPatient.age,
           symptoms: localPatient.symptoms,
+          village: localPatient.village,
           status: 'synced',
+          offlineGuidance: localPatient.offlineGuidance,
         })
 
         setPendingPatients((currentPatients) =>
@@ -199,6 +244,7 @@ function App() {
 
       setInfoMessage('Selected patient synced successfully after connection was available.')
       setErrorMessage('')
+      await refreshAllData()
     } catch (error) {
       console.error('Failed to sync patient:', error)
       setErrorMessage(error.message || 'Failed to sync patient.')
@@ -224,7 +270,9 @@ function App() {
           name: patient.name,
           age: patient.age,
           symptoms: patient.symptoms,
+          village: patient.village,
           status: 'synced',
+          offlineGuidance: patient.offlineGuidance,
         })
       }
 
@@ -236,12 +284,47 @@ function App() {
         `Sync completed. ${pendingToSync.length} local record(s) uploaded and ${syncResult.syncedCount} backend record(s) updated.`,
       )
       setErrorMessage('')
+      await loadDoctorInsights()
     } catch (error) {
       console.error('Failed to sync all patients:', error)
       setErrorMessage(error.message || 'Failed to sync patient records.')
       setInfoMessage('')
     } finally {
       setIsSyncing(false)
+    }
+  }
+
+  const handleReviewPatient = async (id) => {
+    if (!isOnline) {
+      setErrorMessage('Doctor actions need a connection right now. Please reconnect and try again.')
+      return
+    }
+
+    try {
+      await markPatientReviewed(id)
+      await refreshAllData()
+      setInfoMessage('Patient marked as reviewed.')
+      setErrorMessage('')
+    } catch (error) {
+      console.error('Failed to mark reviewed:', error)
+      setErrorMessage(error.message || 'Failed to mark patient as reviewed.')
+    }
+  }
+
+  const handleGeneratePrescription = async (id) => {
+    if (!isOnline) {
+      setErrorMessage('Doctor actions need a connection right now. Please reconnect and try again.')
+      return
+    }
+
+    try {
+      await updatePatientPrescription(id)
+      await refreshAllData()
+      setInfoMessage('Prescription generated successfully.')
+      setErrorMessage('')
+    } catch (error) {
+      console.error('Failed to generate prescription:', error)
+      setErrorMessage(error.message || 'Failed to generate prescription.')
     }
   }
 
@@ -269,7 +352,16 @@ function App() {
           />
         )
       case 'dashboard':
-        return <Dashboard patients={patients} isLoading={isLoading} />
+        return (
+          <Dashboard
+            patients={patients}
+            isLoading={isLoading}
+            isOnline={isOnline}
+            doctorInsights={doctorInsights}
+            onReviewPatient={handleReviewPatient}
+            onGeneratePrescription={handleGeneratePrescription}
+          />
+        )
       default:
         return (
           <PatientForm
@@ -283,7 +375,8 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-medical-bg text-medical-text">
+    <div className={`min-h-screen bg-medical-bg text-medical-text ${isOnline ? '' : 'pt-20'}`}>
+      <OfflineAlert isOnline={isOnline} />
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-4 sm:px-6 lg:px-8">
         <header className="mb-6 rounded-3xl border border-teal-100 bg-white/95 px-6 py-6 shadow-card">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">

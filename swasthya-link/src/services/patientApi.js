@@ -11,7 +11,32 @@ const handleResponse = async (response) => {
 }
 
 const fetchPatients = async () => {
+  const response = await fetch(`${API_BASE_URL}/patients/raw`)
+  return handleResponse(response)
+}
+
+const fetchPriorityGroups = async () => {
   const response = await fetch(`${API_BASE_URL}/patients`)
+  return handleResponse(response)
+}
+
+const fetchEmergencyPatients = async () => {
+  const response = await fetch(`${API_BASE_URL}/patients/emergency`)
+  return handleResponse(response)
+}
+
+const fetchVillageSummary = async () => {
+  const response = await fetch(`${API_BASE_URL}/patients/village-summary`)
+  return handleResponse(response)
+}
+
+const fetchOutbreaks = async () => {
+  const response = await fetch(`${API_BASE_URL}/patients/outbreaks`)
+  return handleResponse(response)
+}
+
+const fetchPatientStats = async () => {
+  const response = await fetch(`${API_BASE_URL}/patients/stats`)
   return handleResponse(response)
 }
 
@@ -43,4 +68,55 @@ const syncPatient = async (patientId) => {
   return handleResponse(response)
 }
 
-export { createPatient, fetchPatients, syncAllPatients, syncPatient }
+const markPatientReviewed = async (patientId) => {
+  const response = await fetch(`${API_BASE_URL}/patients/${patientId}/review`, {
+    method: 'POST',
+  })
+
+  return handleResponse(response)
+}
+
+const updatePatientPrescription = async (patientId, prescription) => {
+  const response = await fetch(`${API_BASE_URL}/patients/${patientId}/prescription`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ prescription }),
+  })
+
+  return handleResponse(response)
+}
+
+const fetchDoctorInsights = async () => {
+  const [priorityGroups, emergencyPatients, villageSummary, outbreaks, stats] = await Promise.all([
+    fetchPriorityGroups(),
+    fetchEmergencyPatients(),
+    fetchVillageSummary(),
+    fetchOutbreaks(),
+    fetchPatientStats(),
+  ])
+
+  return {
+    priorityGroups,
+    emergencyPatients,
+    villageSummary,
+    outbreaks,
+    stats,
+  }
+}
+
+export {
+  createPatient,
+  fetchDoctorInsights,
+  fetchEmergencyPatients,
+  fetchOutbreaks,
+  fetchPatients,
+  fetchPatientStats,
+  fetchPriorityGroups,
+  fetchVillageSummary,
+  markPatientReviewed,
+  syncAllPatients,
+  syncPatient,
+  updatePatientPrescription,
+}

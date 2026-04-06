@@ -41,7 +41,7 @@ function SyncPage({
               className="inline-flex min-h-12 items-center gap-2 rounded-2xl bg-medical-primary px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               <RefreshCw className="h-4 w-4" />
-              {isSyncing ? 'Syncing...' : 'Sync Now'}
+              {isOnline ? (isSyncing ? 'Syncing...' : 'Sync Now') : 'Waiting for Connection'}
             </button>
           </div>
         </div>

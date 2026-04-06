@@ -1,10 +1,13 @@
 import { useState } from 'react'
-import { CircleAlert, Save } from 'lucide-react'
+import { CircleAlert, PhoneCall, Save } from 'lucide-react'
+import VoiceAssistant from '../components/VoiceAssistant'
 
 const initialFormState = {
   name: '',
   age: '',
+  village: '',
   symptoms: '',
+  offlineGuidance: null,
 }
 
 function PatientForm({ onSaveOffline, isSaving, feedbackMessage, isOnline }) {
@@ -23,9 +26,22 @@ function PatientForm({ onSaveOffline, isSaving, feedbackMessage, isOnline }) {
     onSaveOffline({
       name: formValues.name || 'Unnamed Patient',
       age: Number(formValues.age) || 0,
+      village: formValues.village || 'Unknown Village',
       symptoms: formValues.symptoms || 'Symptoms not specified.',
+      offlineGuidance: formValues.offlineGuidance,
     })
     setFormValues(initialFormState)
+  }
+
+  const handleVoiceDetailsApply = (details) => {
+    setFormValues((currentValues) => ({
+      ...currentValues,
+      name: details.name || currentValues.name,
+      age: details.age || currentValues.age,
+      village: details.village || currentValues.village,
+      symptoms: details.symptoms || currentValues.symptoms,
+      offlineGuidance: details.offlineGuidance || currentValues.offlineGuidance,
+    }))
   }
 
   return (
@@ -79,6 +95,18 @@ function PatientForm({ onSaveOffline, isSaving, feedbackMessage, isOnline }) {
           </label>
 
           <label className="block">
+            <span className="mb-2 block text-sm font-semibold text-slate-700">Village</span>
+            <input
+              type="text"
+              name="village"
+              value={formValues.village}
+              onChange={handleChange}
+              placeholder="Enter village name"
+              className="min-h-12 w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-base text-medical-text outline-none placeholder:text-slate-400 focus:border-medical-primary focus:bg-white"
+            />
+          </label>
+
+          <label className="block">
             <span className="mb-2 block text-sm font-semibold text-slate-700">Symptoms</span>
             <textarea
               name="symptoms"
@@ -105,31 +133,68 @@ function PatientForm({ onSaveOffline, isSaving, feedbackMessage, isOnline }) {
             </div>
           ) : null}
         </form>
+
+        <div className="mt-6 rounded-3xl border border-orange-200 bg-orange-50 p-5 shadow-card">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">
+                Emergency Call
+              </p>
+              <h3 className="mt-2 text-lg font-semibold text-slate-900">
+                Offline Voice Support
+              </h3>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
+                When data is unavailable, the AI assistant can route triage by voice so field
+                workers still have a fallback.
+              </p>
+            </div>
+
+            <div className="group relative w-full sm:w-auto">
+              <a
+                href="tel:+1XXXXXXXXXX"
+                onClick={() => {
+                  console.log('Offline Triage Mode Activated: Routing via Vapi GSM.')
+                }}
+                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-medical-primary px-5 py-3 text-sm font-semibold text-white shadow-card transition hover:bg-teal-700 sm:w-auto"
+              >
+                <PhoneCall className="h-4 w-4" />
+                Call AI Assistant
+              </a>
+              <span className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 w-64 -translate-x-1/2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 opacity-0 shadow-lg transition group-hover:opacity-100">
+                Our AI assistant handles triage via voice when data is unavailable.
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <aside className="rounded-3xl border border-teal-100 bg-teal-50 p-6 shadow-card">
         <h3 className="font-heading text-xl font-semibold">Field workflow</h3>
         <div className="mt-5 space-y-4">
           <div className="rounded-2xl border border-white/70 bg-white/70 p-4">
-            <p className="text-sm font-semibold text-medical-primary">1. Register patient</p>
+            <p className="text-sm font-semibold text-medical-primary">1. Speak in Hindi</p>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              Record basic demographics and symptoms in a tap-friendly form.
+              मरीज नाम, उम्र और परेशानी बोल सकता है। ऐप फॉर्म भरने में मदद करेगा।
             </p>
           </div>
           <div className="rounded-2xl border border-white/70 bg-white/70 p-4">
-            <p className="text-sm font-semibold text-medical-primary">2. Queue locally</p>
+            <p className="text-sm font-semibold text-medical-primary">2. Get offline guidance</p>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              Each submission is preserved offline until connectivity returns.
+              इंटरनेट के बिना भी दवा सुझाव और first aid guidance तुरंत दिखेगी।
             </p>
           </div>
           <div className="rounded-2xl border border-white/70 bg-white/70 p-4">
-            <p className="text-sm font-semibold text-medical-primary">3. Sync later</p>
+            <p className="text-sm font-semibold text-medical-primary">3. Save and sync later</p>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              Review records on the sync screen and push them when the network is available.
+              रिकॉर्ड डिवाइस पर सेव रहेगा और कनेक्शन आने पर backend में sync होगा।
             </p>
           </div>
         </div>
       </aside>
+
+      <div className="lg:col-span-2">
+        <VoiceAssistant onApplyDetails={handleVoiceDetailsApply} isOnline={isOnline} />
+      </div>
     </section>
   )
 }
