@@ -52,6 +52,18 @@ const createPatient = async (patientData) => {
   return handleResponse(response)
 }
 
+const voiceToText = async (audioBlob) => {
+  const formData = new FormData()
+  formData.append('audio', audioBlob, 'voice.webm')
+
+  const response = await fetch(`${API_BASE_URL}/api/voice-to-text`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  return handleResponse(response)
+}
+
 const fetchCarePlan = async (patientData) => {
   const response = await fetch(`${API_BASE_URL}/patients/care-plan`, {
     method: 'POST',
@@ -129,6 +141,7 @@ export {
   fetchVillageSummary,
   fetchCarePlan,
   markPatientReviewed,
+  voiceToText,
   syncAllPatients,
   syncPatient,
   updatePatientPrescription,

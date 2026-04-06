@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import patientRoutes from './routes/patientRoutes.js'
+import voiceRoutes from './routes/voiceRoutes.js'
 
 const app = express()
 const PORT = process.env.PORT || 5000
@@ -21,6 +22,7 @@ app.get('/', (req, res) => {
 })
 
 app.use('/', patientRoutes)
+app.use('/api', voiceRoutes)
 
 app.use((req, res) => {
   res.status(404).json({

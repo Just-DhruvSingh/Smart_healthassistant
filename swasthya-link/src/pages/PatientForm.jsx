@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { CircleAlert, PhoneCall, Save } from 'lucide-react'
 import VoiceAssistant from '../components/VoiceAssistant'
+import { voiceToText } from '../services/patientApi'
 import { resolveCarePlan } from '../utils/carePlanResolver'
 import { buildOfflineCarePlan } from '../utils/offlineCareAssistant'
 
@@ -14,6 +15,13 @@ const initialFormState = {
 
 function PatientForm({ onSaveOffline, isSaving, feedbackMessage, isOnline }) {
   const [formValues, setFormValues] = useState(initialFormState)
+  const [voiceStatus, setVoiceStatus] = useState({
+    isRecording: false,
+    isProcessing: false,
+    transcript: '',
+    classification: null,
+    error: '',
+  })
   const [carePlanPreview, setCarePlanPreview] = useState({
     mode: 'idle',
     source: 'Awaiting symptoms',
@@ -21,6 +29,9 @@ function PatientForm({ onSaveOffline, isSaving, feedbackMessage, isOnline }) {
     loading: false,
   })
   const previewRequestRef = useRef(0)
+  const mediaRecorderRef = useRef(null)
+  const voiceChunksRef = useRef([])
+  const voiceStopTimerRef = useRef(null)
 
   const handleChange = (event) => {
     const { name, value } = event.target
@@ -103,6 +114,130 @@ function PatientForm({ onSaveOffline, isSaving, feedbackMessage, isOnline }) {
     }))
   }
 
+  const startVoiceCapture = async () => {
+    if (!isOnline) {
+      setVoiceStatus((currentState) => ({
+        ...currentState,
+        error: 'Online voice transcription is available only when the system is connected.',
+      }))
+      return
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setVoiceStatus((currentState) => ({
+        ...currentState,
+        error: 'This browser does not support microphone recording.',
+      }))
+      return
+    }
+
+    try {
+      setVoiceStatus({
+        isRecording: true,
+        isProcessing: false,
+        transcript: '',
+        classification: null,
+        error: '',
+      })
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm'
+
+      const recorder = new MediaRecorder(stream, { mimeType })
+      mediaRecorderRef.current = recorder
+      voiceChunksRef.current = []
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          voiceChunksRef.current.push(event.data)
+        }
+      }
+
+      recorder.onerror = () => {
+        setVoiceStatus({
+          isRecording: false,
+          isProcessing: false,
+          transcript: '',
+          classification: null,
+          error: 'Voice recording failed. Please try again.',
+        })
+      }
+
+      recorder.onstop = async () => {
+        if (voiceStopTimerRef.current) {
+          window.clearTimeout(voiceStopTimerRef.current)
+          voiceStopTimerRef.current = null
+        }
+
+        stream.getTracks().forEach((track) => track.stop())
+        setVoiceStatus((currentState) => ({
+          ...currentState,
+          isRecording: false,
+          isProcessing: true,
+          error: '',
+        }))
+
+        try {
+          const audioBlob = new Blob(voiceChunksRef.current, { type: mimeType })
+          const result = await voiceToText(audioBlob)
+
+          setVoiceStatus({
+            isRecording: false,
+            isProcessing: false,
+            transcript: result.text,
+            classification: result.classification,
+            error: '',
+          })
+
+          setFormValues((currentValues) => ({
+            ...currentValues,
+            symptoms: result.text,
+          }))
+        } catch (error) {
+          console.error('Voice transcription failed:', error)
+          setVoiceStatus({
+            isRecording: false,
+            isProcessing: false,
+            transcript: '',
+            classification: null,
+            error: error.message || 'Voice transcription failed.',
+          })
+        }
+      }
+
+      recorder.start()
+
+      voiceStopTimerRef.current = window.setTimeout(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop()
+        }
+      }, 5000)
+    } catch (error) {
+      console.error('Microphone access failed:', error)
+      setVoiceStatus({
+        isRecording: false,
+        isProcessing: false,
+        transcript: '',
+        classification: null,
+        error: 'Microphone access was denied or is unavailable.',
+      })
+    }
+  }
+
+  useEffect(
+    () => () => {
+      if (voiceStopTimerRef.current) {
+        window.clearTimeout(voiceStopTimerRef.current)
+      }
+      if (mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.stop()
+      }
+    },
+    [],
+  )
+
   return (
     <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
       <div className="rounded-3xl border border-orange-200 bg-orange-50 px-5 py-4 text-orange-800 shadow-card">
@@ -176,6 +311,41 @@ function PatientForm({ onSaveOffline, isSaving, feedbackMessage, isOnline }) {
               className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-base text-medical-text outline-none placeholder:text-slate-400 focus:border-medical-primary focus:bg-white"
             />
           </label>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={startVoiceCapture}
+              disabled={voiceStatus.isRecording || voiceStatus.isProcessing}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-teal-200 bg-white px-5 py-3 text-sm font-semibold text-medical-primary disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {voiceStatus.isRecording || voiceStatus.isProcessing ? 'Processing voice...' : '🎤 Speak Symptoms'}
+            </button>
+            <p className="text-sm text-slate-500">
+              Records a short clip, transcribes it with Hugging Face, and fills the symptoms field.
+            </p>
+          </div>
+
+          {voiceStatus.error ? (
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {voiceStatus.error}
+            </div>
+          ) : null}
+
+          {voiceStatus.transcript ? (
+            <div className="rounded-2xl border border-teal-100 bg-teal-50 px-4 py-3 text-sm text-teal-800">
+              <p className="font-semibold">Voice transcript</p>
+              <p className="mt-1">{voiceStatus.transcript}</p>
+              {voiceStatus.classification ? (
+                <p className="mt-2">
+                  Classification:{' '}
+                  <span className="font-semibold">
+                    {voiceStatus.classification.label} ({Math.round(voiceStatus.classification.score * 100)}%)
+                  </span>
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <button
             type="submit"
