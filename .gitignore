@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.DS_Store
+
+swasthya-link/node_modules/
+swasthya-link/dist/
+
+.vscode/
+.idea/
+*.log
