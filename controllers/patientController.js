@@ -15,6 +15,7 @@ import {
   getVillageSummary,
 } from '../utils/doctorAnalytics.js'
 import { buildPrescription } from '../utils/prescriptionEngine.js'
+import { buildCarePlan } from '../utils/onlineCareAssistant.js'
 import { analyzeTriage } from '../utils/triageEngine.js'
 
 const sendSMSAlert = (patient) => {
@@ -284,9 +285,48 @@ const addPrescription = (req, res, next) => {
   }
 }
 
+const getCarePlan = async (req, res, next) => {
+  try {
+    const { name, age, village, symptoms } = req.body
+
+    if (!symptoms) {
+      return res.status(400).json({
+        success: false,
+        message: 'Symptoms are required for care plan generation.',
+      })
+    }
+
+    const carePlan = await buildCarePlan({
+      name,
+      age,
+      village,
+      symptoms,
+    })
+
+    console.log(
+      `[POST] /patients/care-plan -> ${carePlan.mode} plan generated for ${String(name || 'patient')}`,
+    )
+
+    res.status(200).json({
+      success: true,
+      message:
+        carePlan.mode === 'online_ai'
+          ? 'Online care plan generated successfully.'
+          : 'Offline care plan generated successfully.',
+      data: {
+        mode: carePlan.mode,
+        carePlan,
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
 export {
   addPatient,
   addPrescription,
+  getCarePlan,
   getPatientsEmergency,
   getPatientsGrouped,
   getPatientsOutbreaks,

@@ -52,6 +52,18 @@ const createPatient = async (patientData) => {
   return handleResponse(response)
 }
 
+const fetchCarePlan = async (patientData) => {
+  const response = await fetch(`${API_BASE_URL}/patients/care-plan`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(patientData),
+  })
+
+  return handleResponse(response)
+}
+
 const syncAllPatients = async () => {
   const response = await fetch(`${API_BASE_URL}/patients/sync`, {
     method: 'PUT',
@@ -115,6 +127,7 @@ export {
   fetchPatientStats,
   fetchPriorityGroups,
   fetchVillageSummary,
+  fetchCarePlan,
   markPatientReviewed,
   syncAllPatients,
   syncPatient,

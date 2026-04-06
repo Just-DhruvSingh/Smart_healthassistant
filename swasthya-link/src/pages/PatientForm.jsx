@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CircleAlert, PhoneCall, Save } from 'lucide-react'
 import VoiceAssistant from '../components/VoiceAssistant'
+import { resolveCarePlan } from '../utils/carePlanResolver'
+import { buildOfflineCarePlan } from '../utils/offlineCareAssistant'
 
 const initialFormState = {
   name: '',
@@ -12,6 +14,13 @@ const initialFormState = {
 
 function PatientForm({ onSaveOffline, isSaving, feedbackMessage, isOnline }) {
   const [formValues, setFormValues] = useState(initialFormState)
+  const [carePlanPreview, setCarePlanPreview] = useState({
+    mode: 'idle',
+    source: 'Awaiting symptoms',
+    carePlan: buildOfflineCarePlan(''),
+    loading: false,
+  })
+  const previewRequestRef = useRef(0)
 
   const handleChange = (event) => {
     const { name, value } = event.target
@@ -21,14 +30,64 @@ function PatientForm({ onSaveOffline, isSaving, feedbackMessage, isOnline }) {
     }))
   }
 
-  const handleSubmit = (event) => {
+  useEffect(() => {
+    const symptoms = String(formValues.symptoms || '').trim()
+
+    if (!symptoms) {
+      const timer = window.setTimeout(() => {
+        setCarePlanPreview({
+          mode: 'idle',
+          source: isOnline
+            ? 'Type symptoms to get AI guidance'
+            : 'Type symptoms to get offline guidance',
+          carePlan: buildOfflineCarePlan(''),
+          loading: false,
+        })
+      }, 0)
+
+      return () => window.clearTimeout(timer)
+    }
+
+    const currentRequest = previewRequestRef.current + 1
+    previewRequestRef.current = currentRequest
+    const loadingTimer = window.setTimeout(() => {
+      setCarePlanPreview((currentPreview) => ({
+        ...currentPreview,
+        loading: true,
+        source: isOnline ? 'Analyzing with online AI...' : 'Preparing offline guidance...',
+      }))
+    }, 0)
+
+    const timer = window.setTimeout(async () => {
+      const result = await resolveCarePlan(formValues, isOnline)
+
+      if (previewRequestRef.current === currentRequest) {
+        setCarePlanPreview({
+          ...result,
+          loading: false,
+        })
+      }
+    }, 700)
+
+    return () => {
+      window.clearTimeout(loadingTimer)
+      window.clearTimeout(timer)
+    }
+  }, [formValues, isOnline])
+
+  const handleSubmit = async (event) => {
     event.preventDefault()
-    onSaveOffline({
+
+    const carePlanResult = await resolveCarePlan(formValues, isOnline)
+
+    await onSaveOffline({
       name: formValues.name || 'Unnamed Patient',
       age: Number(formValues.age) || 0,
       village: formValues.village || 'Unknown Village',
       symptoms: formValues.symptoms || 'Symptoms not specified.',
-      offlineGuidance: formValues.offlineGuidance,
+      offlineGuidance: carePlanResult.carePlan,
+      guidanceMode: carePlanResult.mode,
+      guidanceSource: carePlanResult.source,
     })
     setFormValues(initialFormState)
   }
@@ -127,12 +186,49 @@ function PatientForm({ onSaveOffline, isSaving, feedbackMessage, isOnline }) {
             {isSaving ? 'Saving...' : 'Save Offline'}
           </button>
 
-          {feedbackMessage ? (
-            <div className="rounded-2xl border border-teal-100 bg-teal-50 px-4 py-3 text-sm text-teal-700">
-              {feedbackMessage}
+        {feedbackMessage ? (
+          <div className="rounded-2xl border border-teal-100 bg-teal-50 px-4 py-3 text-sm text-teal-700">
+            {feedbackMessage}
+          </div>
+        ) : null}
+
+        <div className="mt-6 rounded-3xl border border-teal-100 bg-white p-5 shadow-card">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-medical-primary">
+                Care Guidance Preview
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                {carePlanPreview.loading
+                  ? 'Fetching the latest guidance...'
+                  : carePlanPreview.source}
+              </p>
             </div>
-          ) : null}
-        </form>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+              {carePlanPreview.mode === 'online_ai'
+                ? 'Online AI'
+                : carePlanPreview.mode === 'offline_generic'
+                  ? 'Offline Generic'
+                  : 'Ready'}
+            </span>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-medical-text">
+              {carePlanPreview.carePlan.illness}
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              Risk: <span className="font-semibold">{carePlanPreview.carePlan.riskLevel}</span>
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              Medication: <span className="font-semibold">{carePlanPreview.carePlan.medications.join(', ')}</span>
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              Advice: <span className="font-semibold">{carePlanPreview.carePlan.advice}</span>
+            </p>
+          </div>
+        </div>
+      </form>
 
         <div className="mt-6 rounded-3xl border border-orange-200 bg-orange-50 p-5 shadow-card">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">

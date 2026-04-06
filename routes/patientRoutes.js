@@ -2,6 +2,7 @@ import express from 'express'
 import {
   addPatient,
   addPrescription,
+  getCarePlan,
   getPatientsEmergency,
   getPatientsGrouped,
   getPatientsOutbreaks,
@@ -21,6 +22,7 @@ router.get('/patients/emergency', getPatientsEmergency)
 router.get('/patients/village-summary', getPatientsVillageSummary)
 router.get('/patients/outbreaks', getPatientsOutbreaks)
 router.get('/patients/stats', getPatientsStats)
+router.post('/patients/care-plan', getCarePlan)
 router.post('/patients', addPatient)
 router.post('/patients/:id/review', reviewPatient)
 router.post('/patients/:id/prescription', addPrescription)

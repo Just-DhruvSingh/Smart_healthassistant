@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Mic, MicOff, Volume2, WandSparkles } from 'lucide-react'
 import {
   buildOfflineCarePlan,
@@ -6,6 +6,7 @@ import {
   extractName,
   formatCarePlanSpeech,
 } from '../utils/offlineCareAssistant'
+import { resolveCarePlan } from '../utils/carePlanResolver'
 
 const prompts = [
   {
@@ -55,9 +56,15 @@ function VoiceAssistant({ onApplyDetails, isOnline }) {
       ? 'हिंदी वॉइस असिस्टेंट तैयार है। पहले माइक्रोफोन अनुमति दें, फिर मरीज बोल सकता है।'
       : 'इस ब्राउज़र में वॉइस इनपुट उपलब्ध नहीं है। Chrome या Edge में साइट खोलें।',
   )
+  const [carePlanResult, setCarePlanResult] = useState({
+    mode: 'idle',
+    source: 'Waiting for symptoms',
+    carePlan: buildOfflineCarePlan(''),
+    loading: false,
+  })
 
   const currentPrompt = prompts[stepIndex]
-  const carePlan = useMemo(() => buildOfflineCarePlan(answers.symptoms), [answers.symptoms])
+  const carePlan = carePlanResult.carePlan
 
   useEffect(() => {
     stepIndexRef.current = stepIndex
@@ -97,11 +104,32 @@ function VoiceAssistant({ onApplyDetails, isOnline }) {
         }
 
         if (key === 'symptoms') {
-          onApplyDetails({
-            ...nextAnswers,
-            offlineGuidance: buildOfflineCarePlan(nextAnswers.symptoms),
+          setCarePlanResult({
+            mode: 'loading',
+            source: isOnline ? 'Online AI is analyzing...' : 'Preparing offline guidance...',
+            carePlan: buildOfflineCarePlan(nextAnswers.symptoms),
+            loading: true,
           })
-          setVoiceStatus('आवाज़ से विवरण भर दिया गया है। अब रिकॉर्ड सेव किया जा सकता है।')
+
+          void (async () => {
+            const result = await resolveCarePlan(nextAnswers, isOnline)
+
+            setCarePlanResult({
+              ...result,
+              loading: false,
+            })
+
+            onApplyDetails({
+              ...nextAnswers,
+              offlineGuidance: result.carePlan,
+            })
+
+            setVoiceStatus(
+              result.mode === 'online_ai'
+                ? 'ऑनलाइन AI guidance तैयार हो गया है। अब रिकॉर्ड सेव किया जा सकता है।'
+                : 'ऑफलाइन सामान्य guidance तैयार हो गया है। अब रिकॉर्ड सेव किया जा सकता है।',
+            )
+          })()
         } else {
           const nextStep = stepIndexRef.current + 1
           setStepIndex(nextStep)
@@ -111,7 +139,7 @@ function VoiceAssistant({ onApplyDetails, isOnline }) {
         return nextAnswers
       })
     },
-    [onApplyDetails],
+    [isOnline, onApplyDetails],
   )
 
   useEffect(() => {
@@ -153,7 +181,7 @@ function VoiceAssistant({ onApplyDetails, isOnline }) {
       const latestResult = event.results[event.results.length - 1]
 
       if (latestResult?.isFinal) {
-        handleFinalTranscript(currentPrompt?.key, transcript)
+        void handleFinalTranscript(currentPrompt?.key, transcript)
       }
     }
 
@@ -357,6 +385,12 @@ function VoiceAssistant({ onApplyDetails, isOnline }) {
     })
     setTranscriptPreview('')
     setStepIndex(0)
+    setCarePlanResult({
+      mode: 'idle',
+      source: 'Waiting for symptoms',
+      carePlan: buildOfflineCarePlan(''),
+      loading: false,
+    })
     setVoiceStatus('वॉइस असिस्टेंट रीसेट हो गया है। अब फिर से नाम से शुरू करें।')
   }
 
@@ -492,7 +526,17 @@ function VoiceAssistant({ onApplyDetails, isOnline }) {
       </div>
 
       <div className="mt-5 rounded-2xl border border-emerald-200 bg-white p-4">
-        <p className="text-sm font-semibold text-medical-primary">Offline Care Guidance</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-medical-primary">Care Guidance</p>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+            {carePlanResult.loading
+              ? 'Analyzing...'
+              : carePlanResult.mode === 'online_ai'
+                ? 'Online AI'
+                : 'Offline Generic'}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">{carePlanResult.source}</p>
         <p className="mt-2 text-sm text-slate-700">
           संभावित समस्या: <span className="font-semibold">{carePlan.illness}</span>
         </p>
